@@ -1,0 +1,8 @@
+﻿<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDesktop_005CLib_005Cdebug_005Cenet_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDesktop_005CLib_005Crelease_005CENet_002DCSharp_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDesktop_005CLib_005Crelease_005Cenet_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDocuments_005CGitHub_005CSimpleNet_005CLib_005Cdebug_005Cenet_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDocuments_005CGitHub_005CSimpleNet_005CLib_005CENet_002DCSharp_005CMSBuild_005CENetCSharp_005Cbin_005CDebug_005Cnetstandard2_002E0_005CENetCSharp_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDocuments_005CGitHub_005CSimpleNet_005CLib_005CENet_002DCSharp_005CMSBuild_005CENetCSharp_005Cbin_005CDebug_005Cnetstandard2_002E0_005Cenet_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=C_003A_005CUsers_005Cuser_005CDocuments_005CGitHub_005CSimpleNet_005CLib_005Cenet_002Edll/@EntryIndexedValue">True</s:Boolean></wpf:ResourceDictionary>
