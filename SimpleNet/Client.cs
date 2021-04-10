@@ -104,9 +104,6 @@ namespace SimpleNet
 				    netEvent.Type == EventType.Connect)
 				{
 					Interlocked.Increment(ref connected);
-					Interlocked.Increment(ref raiseConnectionEvent);
-					Interlocked.Exchange(ref id, (int) netEvent.Peer.ID);
-					Console.WriteLine("my id is:" + netEvent.Peer.ID);
 				}
 				else
 				{
@@ -123,9 +120,6 @@ namespace SimpleNet
 							case EventType.None:
 								break;
 
-							case EventType.Connect:
-								break;
-
 							case EventType.Disconnect:
 								Interlocked.Exchange(ref connected, 0);
 								Interlocked.Increment(ref raiseDisconnectEvent);
@@ -137,9 +131,26 @@ namespace SimpleNet
 								break;
 
 							case EventType.Receive:
-								byte[] buffer = new byte[netEvent.Packet.Length];
-								netEvent.Packet.CopyTo(buffer);
-								receiveQueue.Enqueue(buffer);
+								byte[] buffer1 = ByteUtils.GetBytes(netEvent.Packet.Data, 0, netEvent.Packet.Length);
+								Console.WriteLine(buffer1[1]);
+								switch ((ClientMessageFormat) ByteUtils.ReadByte(netEvent.Packet.Data, 0))
+								{
+									case ClientMessageFormat.ClientID:
+										byte[] buffer = ByteUtils.GetBytes(netEvent.Packet.Data, 1, netEvent.Packet.Length-1);
+										Interlocked.Exchange(ref id, (int) BitConverter.ToUInt32(buffer, 0));
+										Interlocked.Increment(ref raiseConnectionEvent);
+										break;
+									case ClientMessageFormat.JoinedRoom:
+										break;
+									case ClientMessageFormat.LinkMessage:
+										break;
+									case ClientMessageFormat.UserMessage:
+										receiveQueue.Enqueue(ByteUtils.GetBytes(netEvent.Packet.Data, 1, netEvent.Packet.Length - 1));
+										break;
+									default:
+										throw new ArgumentOutOfRangeException();
+								}
+
 								netEvent.Packet.Dispose();
 								break;
 						}
@@ -158,10 +169,11 @@ namespace SimpleNet
 					{
 						Packet packet = default(Packet);
 						Message m = sendQueue.Dequeue();
-						packet.Create(m.data, (PacketFlags)m.type);
+						packet.Create(m.data, (PacketFlags) m.type);
 						client.Broadcast(0, ref packet);
 					}
 				}
+
 				client.Flush();
 			}
 		}
@@ -174,6 +186,16 @@ namespace SimpleNet
 		public float Ping()
 		{
 			return ping;
+		}
+
+		public int GetID()
+		{
+			return id;
+		}
+
+		private void CreateRoom()
+		{
+			
 		}
 	}
 }

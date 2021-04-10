@@ -8,8 +8,8 @@ namespace SimpleNet.Properties
 		[Flags]
 		public enum MessageType
 		{
-			Reliable=1,
 			UnreliableOrdered=0,
+			Reliable=1,
 			UnreliableUnordered=2,
 		}
 

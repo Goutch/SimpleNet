@@ -17,7 +17,7 @@ namespace SimpleNet
 				return obj;
 			}
 		}
-		
+
 		public static byte[] ObjectToBytes<T>(object obj)
 		{
 			BinaryFormatter bf = new BinaryFormatter();
@@ -41,9 +41,8 @@ namespace SimpleNet
 				handle.Free();
 			}
 		}
-
-
-		public static byte[] StructToBytes<T>(T t) where T : struct
+		
+		public static byte[] StructToBytes<T>(ref T t) where T : struct
 		{
 			int len = Marshal.SizeOf(t);
 
@@ -70,11 +69,16 @@ namespace SimpleNet
 			return Encoding.ASCII.GetBytes(s);
 		}
 
-		public static byte[] PtrToBytes(IntPtr ptr, int start, int lenght)
+		public static byte[] GetBytes(IntPtr ptr, int start, int length)
 		{
-			byte[] buffer = new byte[lenght];
-			Marshal.Copy(ptr, buffer ,start, lenght);
+			byte[] buffer = new byte[length];
+			Marshal.Copy((ptr + start), buffer, 0, length);
 			return buffer;
+		}
+
+		public static byte ReadByte(IntPtr ptr, int index)
+		{
+			return Marshal.ReadByte(ptr, index);
 		}
 	}
 }

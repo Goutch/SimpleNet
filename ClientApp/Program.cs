@@ -66,8 +66,9 @@ namespace ClientApp
 
 		private static void OnConnectionSuccess()
 		{
-			Console.WriteLine("Connected!");
+			Console.WriteLine("Connected! ID="+client.GetID());
 			connected = true;
+			
 		}
 
 		private static void OnTimeout()

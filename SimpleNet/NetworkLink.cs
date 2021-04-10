@@ -1,7 +1,7 @@
 ﻿namespace SimpleNet
 {
 	
-	public class NetworkEntity
+	public class NetworkLink
 	{
 		private uint id;
 		private uint ownerID;

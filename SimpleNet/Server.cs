@@ -16,7 +16,6 @@ namespace SimpleNet
 		private Thread IOThread;
 		private int shouldStop = 0;
 
-
 		private ConcurrentQueue<Message> sendQueue = new();
 		private ConcurrentQueue<KeyValuePair<uint, Message>> sendExcludedQueue = new();
 		private ConcurrentQueue<KeyValuePair<uint[], Message>> sendTargetsQueue = new();
@@ -106,7 +105,13 @@ namespace SimpleNet
 								ClientData clientData = new ClientData(netEvent.Peer.ID, netEvent.Peer.IP);
 								clients.Add(netEvent.Peer.ID, clientData);
 								peers.Add(netEvent.Peer.ID, netEvent.Peer);
+
 								pendingConnectEvents.Enqueue(netEvent.Peer.ID);
+								List<byte> bytes = new List<byte>();
+								bytes.Add((byte) ClientMessageFormat.ClientID);
+								bytes.AddRange(BitConverter.GetBytes(netEvent.Peer.ID));
+								Message message = new Message(bytes.ToArray());
+								sendTargetsQueue.Enqueue(new KeyValuePair<uint[], Message>(new uint[1] {netEvent.Peer.ID}, message));
 								break;
 
 							case EventType.Disconnect:
@@ -120,9 +125,19 @@ namespace SimpleNet
 								break;
 
 							case EventType.Receive:
-								//byte[] buffer = ByteUtils.PtrToBytes(netEvent.Packet.Data, 0, netEvent.Packet.Length);
-								byte[] buffer = new byte[netEvent.Packet.Length];
-								netEvent.Packet.CopyTo(buffer);
+								switch ((ServerMessageFormat) ByteUtils.ReadByte(netEvent.Packet.Data, 0))
+								{
+									case ServerMessageFormat.CreateRoom:
+										break;
+									case ServerMessageFormat.JoinRoom:
+										break;
+									case ServerMessageFormat.RequestPublicRooms:
+										break;
+									default:
+										throw new ArgumentOutOfRangeException();
+								}
+
+								byte[] buffer = ByteUtils.GetBytes(netEvent.Packet.Data, 0, netEvent.Packet.Length);
 								receiveQueue.Enqueue(new KeyValuePair<uint, byte[]>(netEvent.Peer.ID, buffer));
 								netEvent.Packet.Dispose();
 								break;
@@ -196,7 +211,7 @@ namespace SimpleNet
 			Interlocked.Increment(ref shouldStop);
 		}
 
-		public ClientData getClient(uint id)
+		public ClientData GetClient(uint id)
 		{
 			return clients[id];
 		}

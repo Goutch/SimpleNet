@@ -13,6 +13,7 @@
         <FileAlignment>512</FileAlignment>
         <LangVersion>default</LangVersion>
         <Nullable>disable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
         <PlatformTarget>AnyCPU</PlatformTarget>
@@ -23,6 +24,7 @@
         <DefineConstants>DEBUG;TRACE</DefineConstants>
         <ErrorReport>prompt</ErrorReport>
         <WarningLevel>4</WarningLevel>
+        <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     </PropertyGroup>
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
         <PlatformTarget>AnyCPU</PlatformTarget>
@@ -32,6 +34,7 @@
         <DefineConstants>TRACE</DefineConstants>
         <ErrorReport>prompt</ErrorReport>
         <WarningLevel>4</WarningLevel>
+        <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
@@ -51,7 +54,7 @@
         <Compile Include="ConcurrentDictonaryExtension.cs" />
         <Compile Include="ConcurrentQueueExtension.cs" />
         <Compile Include="Message.cs" />
-        <Compile Include="NetworkEntity.cs" />
+        <Compile Include="NetworkLink.cs" />
         <Compile Include="Room.cs" />
         <Compile Include="Server.cs" />
         <Compile Include="Properties\AssemblyInfo.cs" />

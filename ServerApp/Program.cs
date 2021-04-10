@@ -36,7 +36,7 @@ namespace ServerApp
 			Thread inputThread = new Thread(() => { HandleConsoleInput(); });
 			inputThread.Start();
 
-			server.Start(8888, 2);
+			server.Start(8888, 8);
 			while (server.IsRunning())
 			{
 				while (!consoleInputs.IsEmpty)

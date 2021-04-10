@@ -3,9 +3,9 @@
 namespace SimpleNet.Properties
 {
 	public class Room
-	{		
-		private string name;
+	{
+		int ownerID;
 		private List<uint> clients;
-		private Dictionary<uint,NetworkEntity> entities;
+		private Dictionary<uint,NetworkLink> entities;
 	}
 }
