@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using SimpleNet;
-using SimpleNet.Properties;
+using SimpleNet.Frames;
+
 
 namespace ClientApp
 {
@@ -12,6 +14,8 @@ namespace ClientApp
 		private static ConcurrentQueue<string> consoleInputs = new ConcurrentQueue<string>();
 		private static Client client;
 		private static bool connected = true;
+		private static Dictionary<uint, NetEntity> entities = new();
+		private static Dictionary<uint, string> entitiesNames = new();
 
 		private static void HandleConsoleInput()
 		{
@@ -36,7 +40,9 @@ namespace ClientApp
 			client.OnConnectionFailed += OnConnectionFailed;
 			client.OnDisconnect += OnDisconnect;
 			client.OnTimeout += OnTimeout;
-
+			client.OnNetEntityCreated += OnNetEntityCreated;
+			client.OnNetEntityReceiveData += OnNetEntityReceiveData;
+			client.OnError += OnError;
 			Thread thread = new Thread(() => { HandleConsoleInput(); });
 			thread.Start();
 			while (connected)
@@ -46,16 +52,47 @@ namespace ClientApp
 					string output = consoleInputs.Dequeue();
 					if (output == "quit")
 						client.Disconnect();
+					if (output == "create")
+						client.CreateEntity(ByteUtils.StringToBytes("myFirstEntity"));
 					else if (output == "ping")
 						Console.WriteLine(client.Ping());
 					else
-						client.Send(new Message(Encoding.ASCII.GetBytes(output)));
+					{
+						Frame frame = new Frame(Frame.FrameType.Reliable);
+						frame.AddData(Encoding.ASCII.GetBytes(output));
+						if (entities.Count == 0)
+						{
+							client.Broadcast(frame);
+						}
+						else
+						{
+							client.Broadcast(frame, entities[0]);
+						}
+					}
 				}
 
 				client.PollEvents();
 			}
 
 			SNet.Terminate();
+		}
+
+		private static void OnError(string errorMessage)
+		{
+			Console.WriteLine(errorMessage);
+		}
+
+		private static void OnNetEntityReceiveData(uint entityID, byte[] data)
+		{
+			Console.WriteLine("Received message for entity " + entityID);
+		}
+
+
+		private static void OnNetEntityCreated(NetEntity netEntity, byte[] data)
+		{
+			Console.WriteLine("Created entity |ID=" + netEntity.ID + "|Owner=" + netEntity.Owner + "|name=" + ByteUtils.BytesToString(data));
+			entities.Add(netEntity.ID, netEntity);
+			entitiesNames.Add(netEntity.ID, ByteUtils.BytesToString(data));
 		}
 
 
@@ -66,9 +103,8 @@ namespace ClientApp
 
 		private static void OnConnectionSuccess()
 		{
-			Console.WriteLine("Connected! ID="+client.GetID());
+			Console.WriteLine("Connected! ID=" + client.GetID());
 			connected = true;
-			
 		}
 
 		private static void OnTimeout()
@@ -79,6 +115,9 @@ namespace ClientApp
 			client.OnConnectionFailed -= OnConnectionFailed;
 			client.OnDisconnect -= OnDisconnect;
 			client.OnTimeout -= OnTimeout;
+			client.OnNetEntityCreated -= OnNetEntityCreated;
+			client.OnNetEntityReceiveData -= OnNetEntityReceiveData;
+			client.OnError -= OnError;
 			connected = false;
 		}
 
@@ -90,6 +129,9 @@ namespace ClientApp
 			client.OnConnectionFailed -= OnConnectionFailed;
 			client.OnDisconnect -= OnDisconnect;
 			client.OnTimeout -= OnTimeout;
+			client.OnNetEntityCreated -= OnNetEntityCreated;
+			client.OnNetEntityReceiveData -= OnNetEntityReceiveData;
+			client.OnError -= OnError;
 			connected = false;
 		}
 

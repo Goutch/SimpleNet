@@ -1,9 +1,8 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Text;
 using System.Threading;
 using SimpleNet;
-using SimpleNet.Properties;
+using SimpleNet.Frames;
 
 namespace ServerApp
 {
@@ -32,7 +31,6 @@ namespace ServerApp
 			server.OnClientConnect += OnClientConnect;
 			server.OnClientDisconnect += OnClientDisconnect;
 			server.OnClientTimeout += OnClientTimeout;
-
 			Thread inputThread = new Thread(() => { HandleConsoleInput(); });
 			inputThread.Start();
 
@@ -77,9 +75,9 @@ namespace ServerApp
 		{
 			string s = "Client#" + from + ":" + ByteUtils.BytesToString(data);
 			Console.WriteLine(s);
-			Message message = new Message();
-			message.data = ByteUtils.StringToBytes(s);
-			server.Send(message);
+			Frame frame = new Frame(Frame.FrameType.Reliable);
+			frame.AddData(ByteUtils.StringToBytes(s));
+			server.Send(frame);
 		}
 	}
 }

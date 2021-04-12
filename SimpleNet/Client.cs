@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using ENet;
 using System.Threading;
-using SimpleNet.Properties;
+using SimpleNet.Frames;
 
 namespace SimpleNet
 {
@@ -14,7 +15,7 @@ namespace SimpleNet
 		private volatile float ping;
 		private Thread IOThread;
 
-		private ConcurrentQueue<Message> sendQueue;
+		private ConcurrentQueue<Frame> sendQueue;
 
 		#region Events
 
@@ -22,12 +23,21 @@ namespace SimpleNet
 
 		public delegate void ReceiveDataEventHandler(byte[] data);
 
+		public delegate void ErrorEventHandler(string errorMessage);
+
+		public delegate void NetEntityCreatedEventHandler(NetEntity entity, byte[] data);
+
+		public delegate void NetEntityReceiveEventHandler(uint entityID, byte[] data);
+
 		public delegate void DisconnectionEventHandler();
 
 		public delegate void TimeoutEventHandler();
 
 		public ConnectionStatusEventHandler OnConnectionSucces;
 		public ConnectionStatusEventHandler OnConnectionFailed;
+		public ErrorEventHandler OnError;
+		public NetEntityCreatedEventHandler OnNetEntityCreated;
+		public NetEntityReceiveEventHandler OnNetEntityReceiveData;
 		public ReceiveDataEventHandler OnReceiveData;
 		public DisconnectionEventHandler OnDisconnect;
 		public TimeoutEventHandler OnTimeout;
@@ -35,7 +45,11 @@ namespace SimpleNet
 		private volatile int raiseConnectionEvent = 0;
 		private volatile int raiseDisconnectEvent = 0;
 		private volatile int raiseTimeoutEvent = 0;
-		private ConcurrentQueue<byte[]> receiveQueue;
+		private ConcurrentQueue<byte[]> pendingReceiveEvents;
+		private ConcurrentQueue<string> pendingErrorEvents;
+		private ConcurrentQueue<KeyValuePair<NetEntity, byte[]>> pendingNetEntityCreatedEvent;
+
+		private ConcurrentQueue<KeyValuePair<uint, byte[]>> netEntityReceiveQueue;
 
 		#endregion
 
@@ -68,16 +82,36 @@ namespace SimpleNet
 				Interlocked.Exchange(ref raiseTimeoutEvent, 0);
 			}
 
-			while (!receiveQueue.IsEmpty)
+			while (!pendingReceiveEvents.IsEmpty)
 			{
-				OnReceiveData?.Invoke(receiveQueue.Dequeue());
+				OnReceiveData?.Invoke(pendingReceiveEvents.Dequeue());
+			}
+
+			while (!pendingErrorEvents.IsEmpty)
+			{
+				OnError?.Invoke(pendingErrorEvents.Dequeue());
+			}
+
+			while (!pendingNetEntityCreatedEvent.IsEmpty)
+			{
+				KeyValuePair<NetEntity, byte[]> pair = pendingNetEntityCreatedEvent.Dequeue();
+				OnNetEntityCreated?.Invoke(pair.Key, pair.Value);
+			}
+
+			while (!netEntityReceiveQueue.IsEmpty)
+			{
+				var pair = netEntityReceiveQueue.Dequeue();
+				OnNetEntityReceiveData?.Invoke(pair.Key, pair.Value);
 			}
 		}
 
 		public void Connect(string ip, ushort port)
 		{
-			receiveQueue = new();
+			pendingReceiveEvents = new();
 			sendQueue = new();
+			pendingErrorEvents = new();
+			pendingNetEntityCreatedEvent = new();
+			netEntityReceiveQueue = new();
 			IOThread = new Thread(() => HandleIO(ip, port));
 			IOThread.Start();
 		}
@@ -131,25 +165,7 @@ namespace SimpleNet
 								break;
 
 							case EventType.Receive:
-								byte[] buffer1 = ByteUtils.GetBytes(netEvent.Packet.Data, 0, netEvent.Packet.Length);
-								Console.WriteLine(buffer1[1]);
-								switch ((ClientMessageFormat) ByteUtils.ReadByte(netEvent.Packet.Data, 0))
-								{
-									case ClientMessageFormat.ClientID:
-										byte[] buffer = ByteUtils.GetBytes(netEvent.Packet.Data, 1, netEvent.Packet.Length-1);
-										Interlocked.Exchange(ref id, (int) BitConverter.ToUInt32(buffer, 0));
-										Interlocked.Increment(ref raiseConnectionEvent);
-										break;
-									case ClientMessageFormat.JoinedRoom:
-										break;
-									case ClientMessageFormat.LinkMessage:
-										break;
-									case ClientMessageFormat.UserMessage:
-										receiveQueue.Enqueue(ByteUtils.GetBytes(netEvent.Packet.Data, 1, netEvent.Packet.Length - 1));
-										break;
-									default:
-										throw new ArgumentOutOfRangeException();
-								}
+								ParseReceiveData(netEvent.Packet.Data, netEvent.Packet.Length);
 
 								netEvent.Packet.Dispose();
 								break;
@@ -168,8 +184,8 @@ namespace SimpleNet
 					while (!sendQueue.IsEmpty)
 					{
 						Packet packet = default(Packet);
-						Message m = sendQueue.Dequeue();
-						packet.Create(m.data, (PacketFlags) m.type);
+						Frame f = sendQueue.Dequeue();
+						packet.Create(f.Data.ToArray(), (PacketFlags) f.Type);
 						client.Broadcast(0, ref packet);
 					}
 				}
@@ -178,10 +194,99 @@ namespace SimpleNet
 			}
 		}
 
-		public void Send(Message m)
+		private void ParseReceiveData(IntPtr data, int length)
 		{
-			sendQueue.Enqueue(m);
+			int index = 0;
+			Frame.ToClientFormat format = (Frame.ToClientFormat) ByteUtils.ReadByte(data, index);
+			index++;
+			switch (format)
+			{
+				case Frame.ToClientFormat.Connection:
+					uint clientID = BitConverter.ToUInt32(ByteUtils.GetBytes(data, index, length - index), 0);
+					Interlocked.Exchange(ref id, (int) clientID);
+					Interlocked.Increment(ref raiseConnectionEvent);
+					break;
+
+				case Frame.ToClientFormat.EntityMessage:
+					uint entityID = BitConverter.ToUInt32(ByteUtils.GetBytes(data, index, 4), 0);
+					index += 4;
+					byte[] entityMessage = ByteUtils.GetBytes(data, index, length - index);
+					netEntityReceiveQueue.Enqueue(new KeyValuePair<uint, byte[]>(entityID, entityMessage));
+					break;
+
+				case Frame.ToClientFormat.ClientMessage:
+					pendingReceiveEvents.Enqueue(ByteUtils.GetBytes(data, index, length - index));
+					break;
+
+				case Frame.ToClientFormat.Error:
+					pendingErrorEvents.Enqueue(ByteUtils.BytesToString(ByteUtils.GetBytes(data, index, length - index)));
+					break;
+
+				case Frame.ToClientFormat.EntityCreated:
+					uint createdEntityID = BitConverter.ToUInt32(ByteUtils.GetBytes(data, index, 4), 0);
+					index += 4;
+					uint entityOwner = BitConverter.ToUInt32(ByteUtils.GetBytes(data, index, 4), 0);
+					index += 4;
+					pendingNetEntityCreatedEvent.Enqueue(new KeyValuePair<NetEntity, byte[]>(
+						new NetEntity(createdEntityID,
+							entityOwner),
+						ByteUtils.GetBytes(data, index, length - index)
+					));
+					break;
+				case Frame.ToClientFormat.EntityChangedOwnership:
+					break;
+				default:
+					throw new ArgumentOutOfRangeException();
+			}
 		}
+
+		public void Send(Frame f)
+		{
+			RelayClientMessageFrame message = new RelayClientMessageFrame(f.Type);
+			message.AddFrame(f);
+			sendQueue.Enqueue(message);
+		}
+
+		public void Broadcast(Frame f)
+		{
+			BroadcastClientMessageFrame message = new BroadcastClientMessageFrame(f.Type);
+			message.AddFrame(f);
+			sendQueue.Enqueue(message);
+		}
+
+		public void Send(Frame f, NetEntity to)
+		{
+			if (to.Owner == id)
+			{
+				RelayEntityMessageFrame relayEntityMessage = new RelayEntityMessageFrame(f.Type, to.ID);
+				relayEntityMessage.AddFrame(f);
+				sendQueue.Enqueue(relayEntityMessage);
+			}
+			else
+			{
+				OnError?.Invoke("Entity must be owned to send data");
+			}
+		}
+
+		public void Broadcast(Frame f, NetEntity to)
+		{
+			if (to.Owner == id)
+			{
+				BroadcastEntityMessageFrame broadcastEntityMessage = new BroadcastEntityMessageFrame(f.Type, to.ID);
+				broadcastEntityMessage.AddFrame(f);
+				sendQueue.Enqueue(broadcastEntityMessage);
+			}
+			else
+			{
+				OnError?.Invoke("Entity must be owned to send data");
+			}
+		}
+
+		public void CreateEntity(byte[] userData)
+		{
+			sendQueue.Enqueue(new CreateEntityFrame(userData));
+		}
+
 
 		public float Ping()
 		{
@@ -191,11 +296,6 @@ namespace SimpleNet
 		public int GetID()
 		{
 			return id;
-		}
-
-		private void CreateRoom()
-		{
-			
 		}
 	}
 }

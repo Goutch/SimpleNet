@@ -3,7 +3,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using ENet;
+using Microsoft.SqlServer.Server;
+using SimpleNet.Frames;
+using SimpleNet.Frames.ToClient;
 using SimpleNet.Properties;
+
 
 namespace SimpleNet
 {
@@ -16,9 +20,11 @@ namespace SimpleNet
 		private Thread IOThread;
 		private int shouldStop = 0;
 
-		private ConcurrentQueue<Message> sendQueue = new();
-		private ConcurrentQueue<KeyValuePair<uint, Message>> sendExcludedQueue = new();
-		private ConcurrentQueue<KeyValuePair<uint[], Message>> sendTargetsQueue = new();
+		private ConcurrentQueue<Frame> broadcastQueue = new();
+		private ConcurrentQueue<KeyValuePair<uint, Frame>> sendExcludedQueue = new();
+		private ConcurrentQueue<KeyValuePair<uint[], Frame>> sendTargetsQueue = new();
+
+		private uint entitiesIDCount = 0;
 
 		#region Events
 
@@ -51,34 +57,6 @@ namespace SimpleNet
 			IOThread.Start();
 		}
 
-		public void PollEvents()
-		{
-			while (!receiveQueue.IsEmpty)
-			{
-				KeyValuePair<uint, byte[]> receivedPacket = receiveQueue.Dequeue();
-				OnReceiveData?.Invoke(receivedPacket.Key, receivedPacket.Value);
-			}
-
-			while (!pendingConnectEvents.IsEmpty)
-			{
-				OnClientConnect?.Invoke(pendingConnectEvents.Dequeue());
-			}
-
-			while (!pendingDisconnectEvents.IsEmpty)
-			{
-				uint id = pendingDisconnectEvents.Dequeue();
-				OnClientDisconnect?.Invoke(id);
-				clients.Remove(id);
-			}
-
-			while (!pendingTimeoutEvents.IsEmpty)
-			{
-				uint id = pendingTimeoutEvents.Dequeue();
-				OnClientTimeout?.Invoke(id);
-				clients.Remove(id);
-			}
-		}
-
 		public void HandleIO(ushort port, int maxClients)
 		{
 			using (server = new Host())
@@ -107,11 +85,9 @@ namespace SimpleNet
 								peers.Add(netEvent.Peer.ID, netEvent.Peer);
 
 								pendingConnectEvents.Enqueue(netEvent.Peer.ID);
-								List<byte> bytes = new List<byte>();
-								bytes.Add((byte) ClientMessageFormat.ClientID);
-								bytes.AddRange(BitConverter.GetBytes(netEvent.Peer.ID));
-								Message message = new Message(bytes.ToArray());
-								sendTargetsQueue.Enqueue(new KeyValuePair<uint[], Message>(new uint[1] {netEvent.Peer.ID}, message));
+								sendTargetsQueue.Enqueue(new KeyValuePair<uint[], Frame>(
+									new uint[1] {netEvent.Peer.ID},
+									new ConnectFrame(netEvent.Peer.ID)));
 								break;
 
 							case EventType.Disconnect:
@@ -125,20 +101,7 @@ namespace SimpleNet
 								break;
 
 							case EventType.Receive:
-								switch ((ServerMessageFormat) ByteUtils.ReadByte(netEvent.Packet.Data, 0))
-								{
-									case ServerMessageFormat.CreateRoom:
-										break;
-									case ServerMessageFormat.JoinRoom:
-										break;
-									case ServerMessageFormat.RequestPublicRooms:
-										break;
-									default:
-										throw new ArgumentOutOfRangeException();
-								}
-
-								byte[] buffer = ByteUtils.GetBytes(netEvent.Packet.Data, 0, netEvent.Packet.Length);
-								receiveQueue.Enqueue(new KeyValuePair<uint, byte[]>(netEvent.Peer.ID, buffer));
+								ParseReceiveData(netEvent.Packet.Data, netEvent.Packet.Length, netEvent.Peer.ID);
 								netEvent.Packet.Dispose();
 								break;
 						}
@@ -146,27 +109,27 @@ namespace SimpleNet
 
 					//Send 
 
-					while (!sendQueue.IsEmpty)
+					while (!broadcastQueue.IsEmpty)
 					{
 						Packet packet = default(Packet);
-						Message m = sendQueue.Dequeue();
-						packet.Create(m.data, (PacketFlags) m.type);
+						Frame f = broadcastQueue.Dequeue();
+						packet.Create(f.Data.ToArray(), (PacketFlags) f.Type);
 						server.Broadcast(0, ref packet);
 					}
 
 					while (!sendExcludedQueue.IsEmpty)
 					{
 						Packet packet = default(Packet);
-						KeyValuePair<uint, Message> m = sendExcludedQueue.Dequeue();
-						packet.Create(m.Value.data, (PacketFlags) m.Value.type);
+						KeyValuePair<uint, Frame> m = sendExcludedQueue.Dequeue();
+						packet.Create(m.Value.Data.ToArray(), (PacketFlags) m.Value.Type);
 						server.Broadcast(0, ref packet, peers[m.Key]);
 					}
 
 					while (!sendTargetsQueue.IsEmpty)
 					{
 						Packet packet = default(Packet);
-						KeyValuePair<uint[], Message> m = sendTargetsQueue.Dequeue();
-						packet.Create(m.Value.data, (PacketFlags) m.Value.type);
+						KeyValuePair<uint[], Frame> m = sendTargetsQueue.Dequeue();
+						packet.Create(m.Value.Data.ToArray(), (PacketFlags) m.Value.Type);
 						List<Peer> targets = new();
 						for (int i = 0; i < m.Key.Length; i++)
 						{
@@ -186,24 +149,101 @@ namespace SimpleNet
 			}
 		}
 
+		private void ParseReceiveData(IntPtr data, int length, uint clientID)
+		{
+			int index = 0;
+			Frame.ToServerFormat format = (Frame.ToServerFormat) ByteUtils.ReadByte(data, index);
+			index++;
+			switch (format)
+			{
+				case Frame.ToServerFormat.CreateEntityRequest:
+					broadcastQueue.Enqueue(new CreatedEntityFrame(entitiesIDCount, clientID, ByteUtils.GetBytes(data, index, length - index)));
+					entitiesIDCount++;
+					break;
+				case Frame.ToServerFormat.GiveEntityOwnershipRequest:
+					break;
+				case Frame.ToServerFormat.ServerMessage:
+					receiveQueue.Enqueue(new KeyValuePair<uint, byte[]>(clientID, ByteUtils.GetBytes(data, index, length - index)));
+					break;
+				case Frame.ToServerFormat.BroadcastClientMessage:
+					Frame.FrameType BroadcastFrameType = (Frame.FrameType) ByteUtils.ReadByte(data, index);
+					index++;
+					ClientMessageFrame clientMessage = new ClientMessageFrame(BroadcastFrameType);
+					clientMessage.AddData(ByteUtils.GetBytes(data, index, length - index));
+					broadcastQueue.Enqueue(clientMessage);
+					break;
+				case Frame.ToServerFormat.RelayEntityMessage:
+					Frame.FrameType relayFrameType = (Frame.FrameType) ByteUtils.ReadByte(data, index);
+					index++;
+					EntityMessageFrame relayMessage = new EntityMessageFrame(relayFrameType);
+					relayMessage.AddData(ByteUtils.GetBytes(data, index, length - index));
+					sendExcludedQueue.Enqueue(new KeyValuePair<uint, Frame>(clientID, relayMessage));
+					break;
+				case Frame.ToServerFormat.BroadCastEntityMessage:
+					Frame.FrameType broadcastFrameType = (Frame.FrameType) ByteUtils.ReadByte(data, index);
+					index++;
+					EntityMessageFrame broadcastMessage = new EntityMessageFrame(broadcastFrameType);
+					broadcastMessage.AddData(ByteUtils.GetBytes(data, index, length - index));
+					broadcastQueue.Enqueue(broadcastMessage);
+					break;
+				default:
+					sendTargetsQueue.Enqueue(new KeyValuePair<uint[], Frame>(new uint[1] {clientID}, new ErrorFrame("Frame format nor supported")));
+					break;
+			}
+		}
+
+		public void PollEvents()
+		{
+			while (!receiveQueue.IsEmpty)
+			{
+				KeyValuePair<uint, byte[]> receivedPacket = receiveQueue.Dequeue();
+				OnReceiveData?.Invoke(receivedPacket.Key, receivedPacket.Value);
+			}
+
+			while (!pendingConnectEvents.IsEmpty)
+			{
+				OnClientConnect?.Invoke(pendingConnectEvents.Dequeue());
+			}
+
+			while (!pendingDisconnectEvents.IsEmpty)
+			{
+				uint id = pendingDisconnectEvents.Dequeue();
+				OnClientDisconnect?.Invoke(id);
+				clients.Remove(id);
+			}
+
+			while (!pendingTimeoutEvents.IsEmpty)
+			{
+				uint id = pendingTimeoutEvents.Dequeue();
+				OnClientTimeout?.Invoke(id);
+				clients.Remove(id);
+			}
+		}
+
 		public bool IsRunning()
 		{
 			return IOThread.IsAlive;
 		}
 
-		public void Send(Message m)
+		public void Send(Frame f)
 		{
-			sendQueue.Enqueue(m);
+			ClientMessageFrame messageFrame = new ClientMessageFrame(f.Type);
+			messageFrame.AddFrame(f);
+			broadcastQueue.Enqueue(messageFrame);
 		}
 
-		public void Send(Message m, uint excludedID)
+		public void Send(Frame f, uint excludedID)
 		{
-			sendExcludedQueue.Enqueue(new KeyValuePair<uint, Message>(excludedID, m));
+			ClientMessageFrame messageFrame = new ClientMessageFrame(f.Type);
+			messageFrame.AddFrame(f);
+			sendExcludedQueue.Enqueue(new KeyValuePair<uint, Frame>(excludedID, messageFrame));
 		}
 
-		public void Send(Message m, uint[] targetsIDs)
+		public void Send(Frame f, uint[] targetsIDs)
 		{
-			sendTargetsQueue.Enqueue(new KeyValuePair<uint[], Message>(targetsIDs, m));
+			ClientMessageFrame messageFrame = new ClientMessageFrame(f.Type);
+			messageFrame.AddFrame(f);
+			sendTargetsQueue.Enqueue(new KeyValuePair<uint[], Frame>(targetsIDs, messageFrame));
 		}
 
 		public void Stop()
