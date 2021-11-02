@@ -1,4 +1,4 @@
-# SimpleNet
+# SimpleNet WIP this is not finished
 
 An abstraction layer on top of ENet.
 
